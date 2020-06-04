@@ -4,9 +4,7 @@
 #include <SPI.h>
 #include <TFT_eSPI.h>
 #include <EEPROM.h>
-
 //#include "max6675.h"
-
 #include "temp.h"
 #include "oil.h"
 #include "volts.h"
@@ -22,6 +20,7 @@ TFT_eSPI tft = TFT_eSPI();
 
 #define CALIBRATION_FILE "/TouchCalData3"
 #define REPEAT_CAL false
+#define TFT_GREY 0x5AEB
 
 float R1 = 110000.0, R2 = 11000.0, R3 = 110000.0, R4 = 11000.0;
 float value1, value2, value3, value4, value5, value6, vout1, vout2, vout3;
@@ -104,7 +103,7 @@ void loop()
 			}
 			else if ((x > 170) && (x < (170 + 40)))
 			{
-				if ((y > 60) && (y <= (60 + 40)))
+				if ((y > 54) && (y <= (54 + 40)))
 				{
 					if (rptdelay > 0)
 					{
@@ -115,7 +114,7 @@ void loop()
 			}
 			else if ((x > 270) && (x < (270 + 40)))
 			{
-				if ((y > 60) && (y <= (60 + 40)))
+				if ((y > 54) && (y <= (54 + 40)))
 				{
 					if (rptdelay < 99)
 					{
@@ -126,7 +125,7 @@ void loop()
 			}
 			else if ((x > 220) && (x < (220 + 40)))
 			{
-				if ((y > 60) && (y <= (60 + 40)))
+				if ((y > 54) && (y <= (54 + 40)))
 				{
 					tft.setTextColor(TFT_GREEN, TFT_BLACK);
 					redraw_delay();
@@ -148,7 +147,7 @@ void loop()
 void redraw_delay()
 {
 	tft.setTextPadding(tft.textWidth("88", 4));
-	tft.drawNumber(rptdelay,226,81,4);
+	tft.drawNumber(rptdelay,226,75,4);
 	tft.setTextPadding(0);
 	delay(50);
 }
@@ -159,26 +158,30 @@ void fill_settings_screen()
 	tft.pushImage(5,5,38,32,back);
 	tft.setTextColor(TFT_CYAN, TFT_BLACK);
 	tft.drawString("USTAWIENIA",100,25,4);
-	tft.drawRoundRect(170,60,40,40,10,TFT_WHITE);
-	tft.drawRoundRect(270,60,40,40,10,TFT_WHITE);
-	tft.drawString("Opoznienie",10,81,4);
-	tft.drawString("-",186,81,4);
+	tft.drawRoundRect(170,54,40,40,10,TFT_WHITE);
+	tft.drawRoundRect(270,54,40,40,10,TFT_WHITE);
+	tft.drawString("Opoznienie",10,75,4);
+	tft.drawString("-",186,75,4);
 	tft.setTextPadding(tft.textWidth("88", 4));
-	tft.drawNumber(rptdelay,226,81,4);
+	tft.drawNumber(rptdelay,226,75,4);
 	tft.setTextPadding(0);
-	tft.drawString("+",284,81,4);
+	tft.drawString("+",284,75,4);
+	tft.drawLine(0,44,320,44,TFT_GREY);
 	settings_filled = true;
 }
 
 void fill_main_screen()
 {
 	tft.fillScreen(TFT_BLACK);
-	tft.pushImage(0,57,45,30,volts);
+	tft.pushImage(2,56,39,26,volts);
 	tft.pushImage(5,5,32,30,temp);
-	tft.pushImage(148,5,66,26,oil);
-	tft.pushImage(5,110,30,32,music);
+	tft.pushImage(148,7,61,24,oil);
+	tft.pushImage(5,101,30,32,music);
 	tft.pushImage(10,198,32,32,reset);
 	tft.pushImage(278,198,32,32,settings);
+	tft.drawLine(0,46,320,46,TFT_GREY);
+	tft.drawLine(0,93,320,93,TFT_GREY);
+	tft.drawLine(0,141,320,141,TFT_GREY);
 	main_filled = true;
 }
 
@@ -244,73 +247,73 @@ void main_screen()
     tft.setTextDatum(MR_DATUM);
     tft.setTextPadding(tft.textWidth("88.88", 2));
     tft.setTextFont(2);
-    tft.drawFloat(vmin1,2,100,72,2);
+    tft.drawFloat(vmin1,2,100,70,2);
     tft.setTextPadding(0);
     tft.setTextDatum(ML_DATUM);
-    tft.drawString("V",100,72,2);
+    tft.drawString("V",100,70,2);
     
     tft.setTextDatum(MR_DATUM);
     tft.setTextPadding(tft.textWidth("88.88", 4));
-    tft.drawFloat(vin1,2,200,72,4);
+    tft.drawFloat(vin1,2,200,73,4);
     tft.setTextPadding(0);
     tft.setTextDatum(ML_DATUM);
-    tft.drawString("V",200,72,4);
+    tft.drawString("V",200,73,4);
     
     tft.setTextDatum(MR_DATUM);
     tft.setTextPadding(tft.textWidth("88.88", 2));
-    tft.drawFloat(vmax1,2,300,72,2);
+    tft.drawFloat(vmax1,2,300,70,2);
     tft.setTextPadding(0);
     tft.setTextDatum(ML_DATUM);
-    tft.drawString("V",300,72,2);
+    tft.drawString("V",300,70,2);
     
     tft.setTextDatum(MR_DATUM);
     tft.setTextPadding(tft.textWidth("88", 4));
-    tft.drawNumber(current,100,125,4);
+    tft.drawNumber(current,100,120,4);
     tft.setTextPadding(0);
     tft.setTextDatum(ML_DATUM);
-    tft.drawString("A",100,125,4);
+    tft.drawString("A",100,120,4);
     
     tft.setTextDatum(MR_DATUM);
     tft.setTextPadding(tft.textWidth("88", 2));
-    tft.drawNumber(currentmax,160,125,2);
+    tft.drawNumber(currentmax,160,118,2);
     tft.setTextPadding(0);
     tft.setTextDatum(ML_DATUM);
-    tft.drawString("A",160,125,2);
+    tft.drawString("A",160,118,2);
 
     tft.setTextDatum(MR_DATUM);
     tft.setTextPadding(tft.textWidth("888", 4));
-    tft.drawNumber(power,235,125,4);
+    tft.drawNumber(power,234,120,4);
     tft.setTextPadding(0);
     tft.setTextDatum(ML_DATUM);
-    tft.drawString("W",235,125,4);
+    tft.drawString("W",234,120,4);
     
     tft.setTextDatum(MR_DATUM);
     tft.setTextPadding(tft.textWidth("888", 2));
-    tft.drawNumber(powermax,295,125,2);
+    tft.drawNumber(powermax,295,118,2);
     tft.setTextPadding(0);
     tft.setTextDatum(ML_DATUM);
-    tft.drawString("W",295,125,2);
+    tft.drawString("W",295,118,2);
 
     tft.setTextDatum(MR_DATUM);
     tft.setTextPadding(tft.textWidth("888.8", 4));
-    tft.drawFloat(temp1,1,105,22,4);
+    tft.drawFloat(temp1,1,105,23,4);
     tft.setTextPadding(0);
     tft.setTextDatum(ML_DATUM);
-    tft.drawString("`C",105,22,4);
+    tft.drawString("`C",105,23,4);
 	
     tft.setTextDatum(MR_DATUM);
     tft.setTextPadding(tft.textWidth("888.8", 4));
-    tft.drawFloat(temp2,1,280,22,4);
+    tft.drawFloat(temp2,1,280,23,4);
     tft.setTextPadding(0);
     tft.setTextDatum(ML_DATUM);
-    tft.drawString("`C",280,22,4);
+    tft.drawString("`C",280,23,4);
     
     tft.setTextDatum(MR_DATUM);
     tft.setTextPadding(tft.textWidth("888.8", 4));
-    tft.drawFloat(temp3,1,180,210,4);
+    tft.drawFloat(temp3,1,178,215,4);
     tft.setTextPadding(0);
     tft.setTextDatum(ML_DATUM);
-    tft.drawString("`C",180,210,4);
+    tft.drawString("`C",178,215,4);
   }
 }
 
