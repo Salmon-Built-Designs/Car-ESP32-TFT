@@ -15,6 +15,7 @@
 
 Adafruit_ADS1115 ads(0x48);
 Adafruit_ADS1115 ads2(0x4A);
+TaskHandle_t Task1;
 TFT_eSPI tft = TFT_eSPI();
 //MAX6675 ktc(13, 10, 12);
 
@@ -23,31 +24,35 @@ TFT_eSPI tft = TFT_eSPI();
 #define TFT_GREY 0x5AEB
 
 float R1 = 110000.0, R2 = 11000.0, R3 = 110000.0, R4 = 11000.0;
-float value1, value2, value3, value4, value5, value6, vout1, vout2, vout3;
-float vin1, vin2, vmin1 = 20.0, vmin2 = 20.0, vmax1 = 0.0, vmax2 = 0.0, temp1, temp2, temp3;
-double temp4;
-int avg = 10, current, currentmax, power, powermax, rpt, screen;
-int rptdelay;
+float value1, value3, vout1, vout3;
+float vmin1 = 20.0, vmax1 = 0.0, current_avg, vin1_avg, temp1_avg, temp2_avg, temp3_avg;
+volatile float vin1, current, temp1, temp2, temp3;
+volatile double temp4;
+volatile int avg, rpt, rptdelay;
+int currentmax, power, powermax, screen;
+int16_t adc0, adc1, adc2, adc3, adc20, adc21, adc22, adc23;
 bool main_filled = false;
 bool settings_filled = false;
 
 void setup()
 {
-  rpt = 999;
-  while (!EEPROM.begin(4)) {
-	true;
-  }
-  rptdelay = EEPROM.read(0);
-  ads.begin();
-  ads2.begin();
-  digitalWrite(12, HIGH); // Touch controller chip select (if used)
-  digitalWrite(14, HIGH); // TFT screen chip select
-  digitalWrite(5, HIGH); // SD card chips select, must use GPIO 5 (ESP32 SS)
-  tft.init();
-  tft.setRotation(1);
-  touch_calibrate();
-  tft.setSwapBytes(true);
-  fill_main_screen();
+	rpt = 999;
+	while (!EEPROM.begin(4)) {
+		true;
+	}
+	avg = EEPROM.read(0);
+	rptdelay = EEPROM.read(1);
+	ads.begin();
+	ads2.begin();
+	digitalWrite(12, HIGH); // Touch controller chip select (if used)
+	digitalWrite(14, HIGH); // TFT screen chip select
+	digitalWrite(5, HIGH); // SD card chips select, must use GPIO 5 (ESP32 SS)
+	tft.init();
+	tft.setRotation(1);
+	touch_calibrate();
+	tft.setSwapBytes(true);
+	xTaskCreatePinnedToCore(read_sensors, "Task1", 10000, NULL, 0, &Task1, 0);
+	fill_main_screen();
 }
 
 void loop()
@@ -56,6 +61,15 @@ void loop()
 
 	if (screen == 0)
 	{
+		if (main_filled)
+		{
+			rpt++;
+			main_screen();
+		}
+		else
+		{
+			fill_main_screen();
+		}
 		if (tft.getTouch(&x, &y))
 		{
 			if ((x > 10) && (x < (10 + 32)))
@@ -65,6 +79,7 @@ void loop()
 					//tft.fillCircle(x, y, 2, TFT_WHITE);
 					//ESP.restart();
 					vmin1 = 20.0; vmax1 = 0.0; currentmax = 0; powermax = 0; rpt = 999;
+					main_screen();
 				}
 			}
 			else if ((x > 278) && (x < (278 + 32)))
@@ -77,18 +92,14 @@ void loop()
 				}
 			}
 		}
-		if (main_filled)
-		{
-			rpt++;
-			main_screen();
-		}
-		else
-		{
-			fill_main_screen();
-		}
+
 	}
 	else if (screen == 1)
 	{
+		if (!settings_filled)
+		{
+			fill_settings_screen();
+		}
 		if (tft.getTouch(&x, &y))
 		{
 			if ((x > 5) && (x < (5 + 38)))
@@ -103,7 +114,15 @@ void loop()
 			}
 			else if ((x > 170) && (x < (170 + 40)))
 			{
-				if ((y > 54) && (y <= (54 + 40)))
+				if ((y > 100) && (y <= (100 + 40)))
+				{
+					if (avg > 1)
+					{
+						avg--;
+						redraw_avg();
+					}
+				}
+				else if ((y > 54) && (y <= (54 + 40)))
 				{
 					if (rptdelay > 0)
 					{
@@ -114,7 +133,15 @@ void loop()
 			}
 			else if ((x > 270) && (x < (270 + 40)))
 			{
-				if ((y > 54) && (y <= (54 + 40)))
+				if ((y > 100) && (y <= (100 + 40)))
+				{
+					if (avg < 99)
+					{
+						avg++;
+						redraw_avg();
+					}
+				}
+				else if ((y > 54) && (y <= (54 + 40)))
 				{
 					if (rptdelay < 99)
 					{
@@ -123,25 +150,76 @@ void loop()
 					}
 				}
 			}
-			else if ((x > 220) && (x < (220 + 40)))
+			if ((x > 240) && (x < (240 + 70)))
 			{
-				if ((y > 54) && (y <= (54 + 40)))
+				if ((y > 4) && (y <= (4 + 35)))
 				{
 					tft.setTextColor(TFT_GREEN, TFT_BLACK);
-					redraw_delay();
-					EEPROM.write(0, rptdelay);
+					tft.drawString("ZAPISZ",253,22,2);
+					EEPROM.write(0, avg);
+					EEPROM.write(1, rptdelay);
 					EEPROM.commit();
 					delay(500);
 					tft.setTextColor(TFT_CYAN, TFT_BLACK);
-					redraw_delay();
+					tft.drawString("ZAPISZ",253,22,2);
 				}
 			}
 		}
-		if (!settings_filled)
-		{
-			fill_settings_screen();
-		}
 	}
+}
+
+void read_sensors(void * parameter) {
+	for(;;)
+	{
+		for (int i=0; i < avg; i++)
+		{
+			adc0 = ads.readADC_SingleEnded(0);
+			adc1 = ads.readADC_SingleEnded(1);
+			adc20 = ads2.readADC_SingleEnded(0);
+			adc21 = ads2.readADC_SingleEnded(1);
+			adc22 = ads2.readADC_SingleEnded(2);
+			value1 = adc0;
+			value3 = adc1;
+			temp1 = (adc20 * 0.1875)/10;
+			temp2 = (adc21 * 0.1875)/10;
+			temp3 = (adc22 * 0.1875)/10;
+			//temp4 = ktc.readCelsius();
+
+			vout1 = (value1 * 0.1875)/1000;
+			vin1 = vout1 / (R2/(R1+R2));
+			if (vin1 < 0.1) { vin1 = 0.0; }
+
+			vout3 = (value3 * 0.1875)/1000;
+			current = (vout3 - 2.528) / 0.02;
+			if (current < 0.1) { current = 0; }
+			
+			vin1_avg = vin1_avg + vin1;
+			current_avg = current_avg + current;
+			temp1_avg = temp1_avg + temp1;
+			temp2_avg = temp2_avg + temp2;
+			temp3_avg = temp3_avg + temp3;
+		}
+		
+		vin1 = vin1_avg/avg;
+		current = current_avg/avg;
+		temp1 = temp1_avg/avg;
+		temp2 = temp2_avg/avg;
+		temp3 = temp3_avg/avg;		
+
+		vin1_avg = 0.0;
+		current_avg = 0;
+		temp1_avg = 0.0;
+		temp2_avg = 0.0;
+		temp3_avg = 0.0;
+	}
+}
+
+void redraw_avg()
+{
+	tft.setTextPadding(tft.textWidth("88", 4));
+	tft.drawNumber(avg,226,120,4);
+	tft.setTextPadding(0);
+	delay(50);
 }
 
 void redraw_delay()
@@ -157,16 +235,31 @@ void fill_settings_screen()
 	tft.fillScreen(TFT_BLACK);
 	tft.pushImage(5,5,38,32,back);
 	tft.setTextColor(TFT_CYAN, TFT_BLACK);
-	tft.drawString("USTAWIENIA",100,25,4);
-	tft.drawRoundRect(170,54,40,40,10,TFT_WHITE);
-	tft.drawRoundRect(270,54,40,40,10,TFT_WHITE);
+	tft.drawString("USTAWIENIA",64,25,4);
+
+	tft.drawLine(0,44,320,44,TFT_GREY);
 	tft.drawString("Opoznienie",10,75,4);
+	tft.drawRoundRect(170,54,40,40,10,TFT_WHITE);
 	tft.drawString("-",186,75,4);
 	tft.setTextPadding(tft.textWidth("88", 4));
 	tft.drawNumber(rptdelay,226,75,4);
 	tft.setTextPadding(0);
+	tft.drawRoundRect(270,54,40,40,10,TFT_WHITE);
 	tft.drawString("+",284,75,4);
+
 	tft.drawLine(0,44,320,44,TFT_GREY);
+	tft.drawString("Srednia",10,120,4);
+	tft.drawRoundRect(170,100,40,40,10,TFT_WHITE);
+	tft.drawString("-",186,120,4);
+	tft.setTextPadding(tft.textWidth("88", 4));
+	tft.drawNumber(avg,226,120,4);
+	tft.setTextPadding(0);
+	tft.drawRoundRect(270,100,40,40,10,TFT_WHITE);
+	tft.drawString("+",284,120,4);
+	
+	tft.drawRoundRect(240,4,70,35,10,TFT_WHITE);
+	tft.drawString("ZAPISZ",253,22,2);
+
 	settings_filled = true;
 }
 
@@ -187,134 +280,89 @@ void fill_main_screen()
 
 void main_screen()
 {
-  if (rpt > rptdelay)
-  {
-	rpt = 0;
-    int16_t adc0, adc1, adc2, adc3, adc20, adc21, adc22, adc23;
-    adc0 = ads.readADC_SingleEnded(0);
-    adc1 = ads.readADC_SingleEnded(1);
-    //adc1 = ads.readADC_SingleEnded(2);
-    adc20 = ads2.readADC_SingleEnded(0);
-    adc21 = ads2.readADC_SingleEnded(1);
-    adc22 = ads2.readADC_SingleEnded(2);
-    value1 = adc0;
-    //value2 = adc1;
-    value3 = adc1;
-    temp1 = (adc20 * 0.1875)/10;
-    temp2 = (adc21 * 0.1875)/10;
-    temp3 = (adc22 * 0.1875)/10;
-    //temp4 = ktc.readCelsius();
+	if (rpt > rptdelay)
+	{
+		rpt = 0;
+		
+		if (vin1 < vmin1) { vmin1 = vin1; }
+		if (vin1 > vmax1) { vmax1 = vin1; }
+		if (current > currentmax) { currentmax = current; }
+		power = vin1 * current / 2;
+		if (power > powermax) { powermax = power; }
+		
+		tft.setTextColor(TFT_CYAN, TFT_BLACK);
 
-  /*
-    int16_t average1, average2, average3, average4, average5, average6;
+		tft.setTextDatum(MR_DATUM);
+		tft.setTextPadding(tft.textWidth("88.88", 2));
+		tft.setTextFont(2);
+		tft.drawFloat(vmin1,2,100,70,2);
+		tft.setTextPadding(0);
+		tft.setTextDatum(ML_DATUM);
+		tft.drawString("V",100,70,2);
 
-    for (int i=0; i < avg; i++) {
-	  average1 = average1 + ads.readADC_SingleEnded(0);
-	  average2 = average2 + ads.readADC_SingleEnded(1);
-	  average3 = average3 + ads.readADC_SingleEnded(2);
-	  average4 = average4 + ads2.readADC_SingleEnded(0);
-	  average5 = average5 + ads2.readADC_SingleEnded(1);
-      average6 = average5 + ads2.readADC_SingleEnded(2);
-    }
+		tft.setTextDatum(MR_DATUM);
+		tft.setTextPadding(tft.textWidth("88.88", 4));
+		tft.drawFloat(vin1,2,200,73,4);
+		tft.setTextPadding(0);
+		tft.setTextDatum(ML_DATUM);
+		tft.drawString("V",200,73,4);
 
-    value1 = average1/avg; value2 = average3/avg; value3 = average2/avg; value4 = average4/avg; value5 = average5/avg; value6 = average6/avg;
-    temp1 = (value4 * 0.1875)/10; temp2 = (value5 * 0.1875)/10; temp3 = (value6 * 0.1875)/10;
-  */
+		tft.setTextDatum(MR_DATUM);
+		tft.setTextPadding(tft.textWidth("88.88", 2));
+		tft.drawFloat(vmax1,2,300,70,2);
+		tft.setTextPadding(0);
+		tft.setTextDatum(ML_DATUM);
+		tft.drawString("V",300,70,2);
 
-    vout1 = (value1 * 0.1875)/1000;
-    vin1 = vout1 / (R2/(R1+R2));
-    if (vin1 < 0.09) { vin1 = 0.0; }
-    if (vin1 < vmin1) { vmin1 = vin1; }
-    if (vin1 > vmax1) { vmax1 = vin1; }
+		tft.setTextDatum(MR_DATUM);
+		tft.setTextPadding(tft.textWidth("88", 4));
+		tft.drawNumber(current,100,120,4);
+		tft.setTextPadding(0);
+		tft.setTextDatum(ML_DATUM);
+		tft.drawString("A",100,120,4);
 
-  /*
-    vout2 = (value2 * 0.1875)/1000;
-    vin2 = vout2 / (R4/(R3+R4));
-    if (vin2 < 0.09) { vin2 = 0.0; }
-    if (vin2 < vmin2) { vmin2 = vin2; }
-    if (vin2 > vmax2) { vmax2 = vin2; }
-  */
-    
-    vout3 = (value3 * 0.1875)/1000;
-    current = (vout3 - 2.528) / 0.02;
-    if (current < 0.1) { current = 0; }
-    if (current > currentmax) { currentmax = current; }
-    power = vin1 * current / 2;
-    if (power > powermax) { powermax = power; }
-	
-	tft.setTextColor(TFT_CYAN, TFT_BLACK);
-	
-    tft.setTextDatum(MR_DATUM);
-    tft.setTextPadding(tft.textWidth("88.88", 2));
-    tft.setTextFont(2);
-    tft.drawFloat(vmin1,2,100,70,2);
-    tft.setTextPadding(0);
-    tft.setTextDatum(ML_DATUM);
-    tft.drawString("V",100,70,2);
-    
-    tft.setTextDatum(MR_DATUM);
-    tft.setTextPadding(tft.textWidth("88.88", 4));
-    tft.drawFloat(vin1,2,200,73,4);
-    tft.setTextPadding(0);
-    tft.setTextDatum(ML_DATUM);
-    tft.drawString("V",200,73,4);
-    
-    tft.setTextDatum(MR_DATUM);
-    tft.setTextPadding(tft.textWidth("88.88", 2));
-    tft.drawFloat(vmax1,2,300,70,2);
-    tft.setTextPadding(0);
-    tft.setTextDatum(ML_DATUM);
-    tft.drawString("V",300,70,2);
-    
-    tft.setTextDatum(MR_DATUM);
-    tft.setTextPadding(tft.textWidth("88", 4));
-    tft.drawNumber(current,100,120,4);
-    tft.setTextPadding(0);
-    tft.setTextDatum(ML_DATUM);
-    tft.drawString("A",100,120,4);
-    
-    tft.setTextDatum(MR_DATUM);
-    tft.setTextPadding(tft.textWidth("88", 2));
-    tft.drawNumber(currentmax,160,118,2);
-    tft.setTextPadding(0);
-    tft.setTextDatum(ML_DATUM);
-    tft.drawString("A",160,118,2);
+		tft.setTextDatum(MR_DATUM);
+		tft.setTextPadding(tft.textWidth("88", 2));
+		tft.drawNumber(currentmax,160,118,2);
+		tft.setTextPadding(0);
+		tft.setTextDatum(ML_DATUM);
+		tft.drawString("A",160,118,2);
 
-    tft.setTextDatum(MR_DATUM);
-    tft.setTextPadding(tft.textWidth("888", 4));
-    tft.drawNumber(power,234,120,4);
-    tft.setTextPadding(0);
-    tft.setTextDatum(ML_DATUM);
-    tft.drawString("W",234,120,4);
-    
-    tft.setTextDatum(MR_DATUM);
-    tft.setTextPadding(tft.textWidth("888", 2));
-    tft.drawNumber(powermax,295,118,2);
-    tft.setTextPadding(0);
-    tft.setTextDatum(ML_DATUM);
-    tft.drawString("W",295,118,2);
+		tft.setTextDatum(MR_DATUM);
+		tft.setTextPadding(tft.textWidth("888", 4));
+		tft.drawNumber(power,234,120,4);
+		tft.setTextPadding(0);
+		tft.setTextDatum(ML_DATUM);
+		tft.drawString("W",234,120,4);
 
-    tft.setTextDatum(MR_DATUM);
-    tft.setTextPadding(tft.textWidth("888.8", 4));
-    tft.drawFloat(temp1,1,105,23,4);
-    tft.setTextPadding(0);
-    tft.setTextDatum(ML_DATUM);
-    tft.drawString("`C",105,23,4);
-	
-    tft.setTextDatum(MR_DATUM);
-    tft.setTextPadding(tft.textWidth("888.8", 4));
-    tft.drawFloat(temp2,1,280,23,4);
-    tft.setTextPadding(0);
-    tft.setTextDatum(ML_DATUM);
-    tft.drawString("`C",280,23,4);
-    
-    tft.setTextDatum(MR_DATUM);
-    tft.setTextPadding(tft.textWidth("888.8", 4));
-    tft.drawFloat(temp3,1,178,215,4);
-    tft.setTextPadding(0);
-    tft.setTextDatum(ML_DATUM);
-    tft.drawString("`C",178,215,4);
-  }
+		tft.setTextDatum(MR_DATUM);
+		tft.setTextPadding(tft.textWidth("888", 2));
+		tft.drawNumber(powermax,295,118,2);
+		tft.setTextPadding(0);
+		tft.setTextDatum(ML_DATUM);
+		tft.drawString("W",295,118,2);
+
+		tft.setTextDatum(MR_DATUM);
+		tft.setTextPadding(tft.textWidth("888.8", 4));
+		tft.drawFloat(temp1,1,105,23,4);
+		tft.setTextPadding(0);
+		tft.setTextDatum(ML_DATUM);
+		tft.drawString("`C",105,23,4);
+
+		tft.setTextDatum(MR_DATUM);
+		tft.setTextPadding(tft.textWidth("888.8", 4));
+		tft.drawFloat(temp2,1,280,23,4);
+		tft.setTextPadding(0);
+		tft.setTextDatum(ML_DATUM);
+		tft.drawString("`C",280,23,4);
+
+		tft.setTextDatum(MR_DATUM);
+		tft.setTextPadding(tft.textWidth("888.8", 4));
+		tft.drawFloat(temp3,1,178,215,4);
+		tft.setTextPadding(0);
+		tft.setTextDatum(ML_DATUM);
+		tft.drawString("`C",178,215,4);
+	}
 }
 
 void touch_calibrate()
