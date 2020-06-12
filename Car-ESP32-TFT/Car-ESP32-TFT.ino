@@ -4,7 +4,7 @@
 #include <SPI.h>
 #include <TFT_eSPI.h>
 #include <EEPROM.h>
-//#include "max6675.h"
+#include "max6675.h"
 #include "temp.h"
 #include "oil.h"
 #include "volts.h"
@@ -17,7 +17,7 @@ Adafruit_ADS1115 ads(0x48);
 Adafruit_ADS1115 ads2(0x4A);
 TaskHandle_t Task1;
 TFT_eSPI tft = TFT_eSPI();
-//MAX6675 ktc(13, 10, 12);
+MAX6675 ktc(27, 16, 17); // SCK, CS, MISO
 
 #define CALIBRATION_FILE "/TouchCalData3"
 #define REPEAT_CAL false
@@ -183,8 +183,7 @@ void read_sensors(void * parameter) {
 			temp1 = (adc20 * 0.1875)/10;
 			temp2 = (adc21 * 0.1875)/10;
 			temp3 = (adc22 * 0.1875)/10;
-			//temp4 = ktc.readCelsius();
-
+			
 			vout1 = (value1 * 0.1875)/1000;
 			vin1 = vout1 / (R2/(R1+R2));
 			if (vin1 < 0.1) { vin1 = 0.0; }
@@ -204,8 +203,8 @@ void read_sensors(void * parameter) {
 		current = current_avg/avg;
 		temp1 = temp1_avg/avg;
 		temp2 = temp2_avg/avg;
-		temp3 = temp3_avg/avg;		
-
+		temp3 = temp3_avg/avg;
+				
 		vin1_avg = 0.0;
 		current_avg = 0;
 		temp1_avg = 0.0;
@@ -275,6 +274,7 @@ void fill_main_screen()
 	tft.drawLine(0,46,320,46,TFT_GREY);
 	tft.drawLine(0,93,320,93,TFT_GREY);
 	tft.drawLine(0,141,320,141,TFT_GREY);
+	tft.drawLine(0,187,320,187,TFT_GREY);
 	main_filled = true;
 }
 
@@ -289,6 +289,8 @@ void main_screen()
 		if (current > currentmax) { currentmax = current; }
 		power = vin1 * current / 2;
 		if (power > powermax) { powermax = power; }
+		
+		temp4 = ktc.readCelsius();
 		
 		tft.setTextColor(TFT_CYAN, TFT_BLACK);
 
@@ -362,6 +364,14 @@ void main_screen()
 		tft.setTextPadding(0);
 		tft.setTextDatum(ML_DATUM);
 		tft.drawString("`C",178,215,4);
+		
+		tft.drawString("EGT",1,167,4);
+		tft.setTextDatum(MR_DATUM);
+		tft.setTextPadding(tft.textWidth("888.8", 4));
+		tft.drawFloat(temp4,1,120,167,4);
+		tft.setTextPadding(0);
+		tft.setTextDatum(ML_DATUM);
+		tft.drawString("`C",120,167,4);
 	}
 }
 
