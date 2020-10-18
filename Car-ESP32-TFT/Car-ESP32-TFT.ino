@@ -1,6 +1,8 @@
 #include "FS.h"
 #include <Wire.h>
 #include <Adafruit_ADS1015.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
 #include <SPI.h>
 #include <TFT_eSPI.h>
 #include <EEPROM.h>
@@ -15,9 +17,13 @@
 
 Adafruit_ADS1115 ads(0x48);
 Adafruit_ADS1115 ads2(0x4A);
+OneWire oneWire(25);
+DallasTemperature sensors(&oneWire);
 TaskHandle_t Task1;
 TFT_eSPI tft = TFT_eSPI();
 MAX6675 ktc(27, 16, 17); // SCK, CS, MISO
+byte Thermo1[8] = { 0x28, 0xFF, 0xB5, 0x22, 0x03, 0x19, 0x8A, 0xEA };
+byte Thermo2[8] = { 0x28, 0xFF, 0xD8, 0x31, 0x03, 0x19, 0x8A, 0xA7 };
 
 #define CALIBRATION_FILE "/TouchCalData3"
 #define REPEAT_CAL false
@@ -25,10 +31,10 @@ MAX6675 ktc(27, 16, 17); // SCK, CS, MISO
 
 float R1 = 110000.0, R2 = 11000.0, R3 = 110000.0, R4 = 11000.0;
 float value1, value3, vout1, vout3;
-float vmin1 = 20.0, vmax1 = 0.0, current_avg, vin1_avg, temp1_avg, temp2_avg, temp3_avg;
-volatile float vin1, current, temp1, temp2, temp3;
+float vmin1 = 20.0, vmax1 = 0.0, current_avg, vin1_avg, temp3_avg, tempC, afr_avg;
+volatile float vin1, current, temp1, temp2, temp3, afr;
 volatile double temp4;
-volatile int avg, rpt, rptdelay;
+volatile int avg, rpt, rptdelay, egtstate;
 int currentmax, power, powermax, screen;
 int16_t adc0, adc1, adc2, adc3, adc20, adc21, adc22, adc23;
 bool main_filled = false;
@@ -42,11 +48,15 @@ void setup()
 	}
 	avg = EEPROM.read(0);
 	rptdelay = EEPROM.read(1);
+	egtstate = EEPROM.read(2);
 	ads.begin();
 	ads2.begin();
+	sensors.begin();
+	delay(500);
+	sensors.setResolution(Thermo1, 9);
+	sensors.setResolution(Thermo2, 9);
 	digitalWrite(12, HIGH); // Touch controller chip select (if used)
 	digitalWrite(14, HIGH); // TFT screen chip select
-	digitalWrite(5, HIGH); // SD card chips select, must use GPIO 5 (ESP32 SS)
 	tft.init();
 	tft.setRotation(1);
 	touch_calibrate();
@@ -133,7 +143,21 @@ void loop()
 			}
 			else if ((x > 270) && (x < (270 + 40)))
 			{
-				if ((y > 100) && (y <= (100 + 40)))
+				if ((y > 146) && (y <= (146 + 40)))
+				{
+					if (egtstate == 1)
+					{
+						egtstate = 0;
+						tft.drawString("OFF",279,166,2);
+					}
+					else
+					{
+						egtstate = 1;
+						tft.drawString("ON  ",279,166,2);
+					}
+					delay(200);
+				}
+				else if ((y > 100) && (y <= (100 + 40)))
 				{
 					if (avg < 99)
 					{
@@ -158,6 +182,7 @@ void loop()
 					tft.drawString("ZAPISZ",253,22,2);
 					EEPROM.write(0, avg);
 					EEPROM.write(1, rptdelay);
+					EEPROM.write(2, egtstate);
 					EEPROM.commit();
 					delay(500);
 					tft.setTextColor(TFT_CYAN, TFT_BLACK);
@@ -171,45 +196,12 @@ void loop()
 void read_sensors(void * parameter) {
 	for(;;)
 	{
-		for (int i=0; i < avg; i++)
-		{
-			adc0 = ads.readADC_SingleEnded(0);
-			adc1 = ads.readADC_SingleEnded(1);
-			adc20 = ads2.readADC_SingleEnded(0);
-			adc21 = ads2.readADC_SingleEnded(1);
-			adc22 = ads2.readADC_SingleEnded(2);
-			value1 = adc0;
-			value3 = adc1;
-			temp1 = (adc20 * 0.1875)/10;
-			temp2 = (adc21 * 0.1875)/10;
-			temp3 = (adc22 * 0.1875)/10;
-			
-			vout1 = (value1 * 0.1875)/1000;
-			vin1 = vout1 / (R2/(R1+R2));
-			if (vin1 < 0.1) { vin1 = 0.0; }
-
-			vout3 = (value3 * 0.1875)/1000;
-			current = (vout3 - 2.528) / 0.02;
-			if (current < 0.1) { current = 0; }
-			
-			vin1_avg = vin1_avg + vin1;
-			current_avg = current_avg + current;
-			temp1_avg = temp1_avg + temp1;
-			temp2_avg = temp2_avg + temp2;
-			temp3_avg = temp3_avg + temp3;
-		}
+		sensors.requestTemperatures();
 		
-		vin1 = vin1_avg/avg;
-		current = current_avg/avg;
-		temp1 = temp1_avg/avg;
-		temp2 = temp2_avg/avg;
-		temp3 = temp3_avg/avg;
-				
-		vin1_avg = 0.0;
-		current_avg = 0;
-		temp1_avg = 0.0;
-		temp2_avg = 0.0;
-		temp3_avg = 0.0;
+		temp1 = sensorValue(Thermo1);
+		temp2 = sensorValue(Thermo2);
+		temp1 = round(temp1);
+		temp2 = round(temp2);
 	}
 }
 
@@ -246,7 +238,6 @@ void fill_settings_screen()
 	tft.drawRoundRect(270,54,40,40,10,TFT_WHITE);
 	tft.drawString("+",284,75,4);
 
-	tft.drawLine(0,44,320,44,TFT_GREY);
 	tft.drawString("Srednia",10,120,4);
 	tft.drawRoundRect(170,100,40,40,10,TFT_WHITE);
 	tft.drawString("-",186,120,4);
@@ -255,6 +246,17 @@ void fill_settings_screen()
 	tft.setTextPadding(0);
 	tft.drawRoundRect(270,100,40,40,10,TFT_WHITE);
 	tft.drawString("+",284,120,4);
+
+	tft.drawString("EGT",10,165,4);
+	tft.drawRoundRect(270,146,40,40,10,TFT_WHITE);
+	if (egtstate == 1)
+	{
+		tft.drawString("ON",279,166,2);
+	}
+	else
+	{
+		tft.drawString("OFF",279,166,2);
+	}
 	
 	tft.drawRoundRect(240,4,70,35,10,TFT_WHITE);
 	tft.drawString("ZAPISZ",253,22,2);
@@ -284,13 +286,51 @@ void main_screen()
 	{
 		rpt = 0;
 		
+		for (int i=0; i < avg; i++)
+		{
+			adc0 = ads.readADC_SingleEnded(0);
+			adc1 = ads.readADC_SingleEnded(1);
+			adc3 = ads.readADC_SingleEnded(3);
+			adc22 = ads2.readADC_SingleEnded(2);
+			value1 = adc0;
+			value3 = adc1;
+			temp3 = (adc22 * 0.1875)/10;
+			afr = ((adc3 * 0.1875)/1000) * 1.764 + 10.29;
+			
+			vout1 = (value1 * 0.1875)/1000;
+			vin1 = vout1 / (R2/(R1+R2));
+			if (vin1 < 0.1) { vin1 = 0.0; }
+
+			vout3 = (value3 * 0.1875)/1000;
+			current = (vout3 - 2.528) / 0.02;
+			if (current < 0.1) { current = 0; }
+			
+			vin1_avg = vin1_avg + vin1;
+			current_avg = current_avg + current;
+			temp3_avg = temp3_avg + temp3;
+			afr_avg = afr_avg + afr;
+		}
+		
+		vin1 = vin1_avg/avg;
+		current = current_avg/avg;
+		temp3 = temp3_avg/avg;
+		afr = afr_avg/avg;
+				
+		vin1_avg = 0.0;
+		current_avg = 0;
+		temp3_avg = 0.0;
+		afr_avg = 0.0;
+		
 		if (vin1 < vmin1) { vmin1 = vin1; }
 		if (vin1 > vmax1) { vmax1 = vin1; }
 		if (current > currentmax) { currentmax = current; }
 		power = vin1 * current / 2;
 		if (power > powermax) { powermax = power; }
 		
-		temp4 = ktc.readCelsius();
+		if (egtstate == 1)
+		{
+			temp4 = ktc.readCelsius();
+		}
 		
 		tft.setTextColor(TFT_CYAN, TFT_BLACK);
 
@@ -345,18 +385,18 @@ void main_screen()
 		tft.drawString("W",295,118,2);
 
 		tft.setTextDatum(MR_DATUM);
-		tft.setTextPadding(tft.textWidth("888.8", 4));
-		tft.drawFloat(temp1,1,105,23,4);
+		tft.setTextPadding(tft.textWidth("888", 4));
+		tft.drawNumber(temp1,90,23,4);
 		tft.setTextPadding(0);
 		tft.setTextDatum(ML_DATUM);
-		tft.drawString("`C",105,23,4);
+		tft.drawString("`C",90,23,4);
 
 		tft.setTextDatum(MR_DATUM);
-		tft.setTextPadding(tft.textWidth("888.8", 4));
-		tft.drawFloat(temp2,1,280,23,4);
+		tft.setTextPadding(tft.textWidth("888", 4));
+		tft.drawNumber(temp2,265,23,4);
 		tft.setTextPadding(0);
 		tft.setTextDatum(ML_DATUM);
-		tft.drawString("`C",280,23,4);
+		tft.drawString("`C",265,23,4);
 
 		tft.setTextDatum(MR_DATUM);
 		tft.setTextPadding(tft.textWidth("888.8", 4));
@@ -364,14 +404,25 @@ void main_screen()
 		tft.setTextPadding(0);
 		tft.setTextDatum(ML_DATUM);
 		tft.drawString("`C",178,215,4);
-		
-		tft.drawString("EGT",1,167,4);
+
+		tft.drawString("AFR",1,167,4);
 		tft.setTextDatum(MR_DATUM);
-		tft.setTextPadding(tft.textWidth("888.8", 4));
-		tft.drawFloat(temp4,1,120,167,4);
+		tft.setTextPadding(tft.textWidth("88.8", 4));
+		tft.drawFloat(afr,1,115,167,4);
 		tft.setTextPadding(0);
 		tft.setTextDatum(ML_DATUM);
-		tft.drawString("`C",120,167,4);
+		//tft.drawString("%",120,167,4);
+		
+		if (egtstate == 1)
+		{
+			tft.drawString("EGT",180,167,4);
+			tft.setTextDatum(MR_DATUM);
+			tft.setTextPadding(tft.textWidth("888", 4));
+			tft.drawNumber(temp4,290,167,4);
+			tft.setTextPadding(0);
+			tft.setTextDatum(ML_DATUM);
+			tft.drawString("`C",290,167,4);
+		}
 	}
 }
 
@@ -438,4 +489,10 @@ void touch_calibrate()
       f.close();
     }
   }
+}
+
+float sensorValue (byte deviceAddress[])
+{
+  tempC = sensors.getTempC (deviceAddress);
+  return tempC;
 }
