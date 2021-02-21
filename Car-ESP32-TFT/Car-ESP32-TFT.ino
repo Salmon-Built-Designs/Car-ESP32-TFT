@@ -14,8 +14,20 @@
 #include "settings.h"
 #include "reset.h"
 #include "back.h"
+#include "fuel.h"
+
+/*#define TFT_MOSI 23
+#define TFT_SCLK 18
+#define TFT_CS   14  // Chip select control pin
+#define TFT_DC   13  // Data Command control pin
+#define TFT_RST   4  // Reset pin (could connect to RST pin)
+#define TFT_RST  -1  // Set TFT_RST to -1 if display RESET is connected to ESP32 board RST
+
+#define TOUCH_CS 12     // Chip select pin (T_CS) of touch screen
+#define TOUCH_DO 19 */
 
 Adafruit_ADS1115 ads(0x48);
+Adafruit_ADS1115 ads2(0x4A);
 OneWire oneWire(25);
 DallasTemperature sensors(&oneWire);
 TaskHandle_t Task1;
@@ -31,12 +43,12 @@ byte Thermo2[8] = { 0x28, 0xFF, 0xD8, 0x31, 0x03, 0x19, 0x8A, 0xA7 };
 
 float R1 = 110000.0, R2 = 11000.0, R3 = 110000.0, R4 = 11000.0;
 float value1, value2, value3, vout1, vout3;
-float vmin1 = 20.0, vmax1 = 0.0, current_avg, vin1_avg, tempC, afr_avg, oilpressure_avg;
-volatile float vin1, current, temp1, temp2, afr, oilpressure;
+float vmin1 = 20.0, vmax1 = 0.0, current_avg, vin1_avg, tempC, afr_avg, oilpressure_avg, fuelpressure_avg;
+volatile float vin1, current, temp1, temp2, afr, oilpressure, fuelpressure;
 volatile double egt1, egt2;
 volatile int avg, rpt, rptdelay, egtstate, afrstate;
 int currentmax, power, powermax, screen;
-int16_t adc0, adc1, adc2, adc3;
+int16_t adc0, adc1, adc2, adc3, adc20;
 bool main_filled = false;
 bool settings_filled = false;
 
@@ -54,6 +66,7 @@ void setup()
 	egtstate = EEPROM.read(2);
 	afrstate = EEPROM.read(3);
 	ads.begin();
+	ads2.begin();
 	sensors.begin();
 	delay(500);
 	sensors.setResolution(Thermo1, 9);
@@ -66,11 +79,33 @@ void setup()
 	tft.setSwapBytes(true);
 	xTaskCreatePinnedToCore(read_sensors, "Task1", 10000, NULL, 0, &Task1, 0);
 	fill_main_screen();
+
+	//Serial.begin(115200);
+	//Serial2.begin(57600, SERIAL_8N1);
+	
+	//while(!Serial) {;}
+	//while(!Serial2) {;}
+	
+	//uint8_t data1[8]= {0xAC, 0x00, 0x00, 0x04, 0x00, 0x00, 0x4C, 0xFC};
+	//uint8_t data2[7]= {0x4C, 0x00, 0x00, 0x03, 0x49, 0xFF, 0xE7};
+	
+	//Serial2.write(data1, 8);
+	//Serial2.write(data2, 7);
 }
 
 void loop()
 {
 	uint16_t x, y;
+	
+	//uint8_t data3[7]= {0x4C, 0x00, 0x00, 0x03, 0x64, 0x00, 0xB3};
+	//Serial2.write(data3, 7);
+	
+	//const int BUFFER_SIZE = 34;
+	//char buf[BUFFER_SIZE];
+	//Serial2.readBytes(buf, 34);
+
+	//Serial.write(buf);
+	//Serial.write(Serial2.read());
 
 	if (screen == 0)
 	{
@@ -301,6 +336,7 @@ void fill_main_screen()
 	tft.pushImage(146,7,61,24,oil);
 	tft.pushImage(5,101,30,32,music);
 	tft.pushImage(10,198,32,32,reset);
+	tft.pushImage(92,198,32,34,fuel);
 	tft.pushImage(278,198,32,32,settings);
 	tft.drawLine(0,46,320,46,TFT_GREY);
 	tft.drawLine(0,93,320,93,TFT_GREY);
@@ -321,6 +357,7 @@ void main_screen()
 			adc1 = ads.readADC_SingleEnded(1);
 			adc2 = ads.readADC_SingleEnded(2);
 			adc3 = ads.readADC_SingleEnded(3);
+			adc20 = ads2.readADC_SingleEnded(0);
 			value1 = adc0;
 			value2 = adc2;
 			value3 = adc1;
@@ -338,8 +375,8 @@ void main_screen()
 			current = (vout3 - 2.528) / 0.02;
 			if (current < 0.1) { current = 0; }
 			
-			//oilpressure = 5.057 - (adc2 * 0.1875)/1000;
 			oilpressure = (value2 * 0.1875)/1000;
+			fuelpressure = (adc20 * 0.1875)/1000;
 			
 			if (afrstate == 1)
 			{
@@ -348,6 +385,7 @@ void main_screen()
 			vin1_avg = vin1_avg + vin1;
 			current_avg = current_avg + current;
 			oilpressure_avg = oilpressure_avg + oilpressure;
+			fuelpressure_avg = fuelpressure_avg + fuelpressure;
 		}
 
 		if (afrstate == 1)
@@ -358,8 +396,10 @@ void main_screen()
 		current = current_avg/avg;
 		oilpressure = oilpressure_avg/avg;
 		oilpressure = (oilpressure - 0.5)*3.445;
+		fuelpressure = fuelpressure_avg/avg;
+		fuelpressure = (fuelpressure - 0.5)*2.583;
 		if (oilpressure < 0.1) { oilpressure = 0.0; }
-		//oilpressure = FmultiMap(oilpressure, mv, bar, 51);
+		if (fuelpressure < 0.1) { fuelpressure = 0.0; }
 				
 		if (afrstate == 1)
 		{
@@ -368,6 +408,7 @@ void main_screen()
 		vin1_avg = 0.0;
 		current_avg = 0;
 		oilpressure_avg = 0.0;
+		fuelpressure_avg = 0.0;
 
 		if (vin1 < vmin1) { vmin1 = vin1; }
 		if (vin1 > vmax1) { vmax1 = vin1; }
@@ -487,6 +528,13 @@ void main_screen()
 			tft.setTextDatum(ML_DATUM);
 			tft.drawString("`C",290,167,4);
 		}
+		
+		tft.setTextDatum(MR_DATUM);
+		tft.setTextPadding(tft.textWidth("8.8", 4));
+		tft.drawFloat(fuelpressure,1,170,217,4);
+		tft.setTextPadding(0);
+		tft.setTextDatum(ML_DATUM);
+		tft.drawString(" BAR",170,217,4);
 	}
 }
 
