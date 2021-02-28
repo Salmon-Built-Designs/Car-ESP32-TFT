@@ -16,15 +16,18 @@
 #include "back.h"
 #include "fuel.h"
 
-/*#define TFT_MOSI 23
-#define TFT_SCLK 18
-#define TFT_CS   14  // Chip select control pin
-#define TFT_DC   13  // Data Command control pin
+/*
 #define TFT_RST   4  // Reset pin (could connect to RST pin)
-#define TFT_RST  -1  // Set TFT_RST to -1 if display RESET is connected to ESP32 board RST
+#define TOUCH_CS 12  // Chip select pin (T_CS) of touch screen
+#define TFT_DC   13  // Data Command control pin
+#define TFT_CS   14  // Chip select control pin
 
-#define TOUCH_CS 12     // Chip select pin (T_CS) of touch screen
-#define TOUCH_DO 19 */
+#define TFT_SCLK 18
+#define TOUCH_DO 19
+#define TFT_MOSI 23
+
+#define TFT_RST  -1  // Set TFT_RST to -1 if display RESET is connected to ESP32 board RST
+*/
 
 Adafruit_ADS1115 ads(0x48);
 Adafruit_ADS1115 ads2(0x4A);
@@ -45,7 +48,7 @@ float R1 = 110000.0, R2 = 11000.0, R3 = 110000.0, R4 = 11000.0;
 float value1, value2, value3, vout1, vout3;
 float vmin1 = 20.0, vmax1 = 0.0, current_avg, vin1_avg, tempC, afr_avg, oilpressure_avg, fuelpressure_avg;
 volatile float vin1, current, temp1, temp2, afr, oilpressure, fuelpressure;
-volatile double egt1, egt2;
+volatile double egt1, egt2, egt1max;
 volatile int avg, rpt, rptdelay, egtstate, afrstate;
 int currentmax, power, powermax, screen;
 int16_t adc0, adc1, adc2, adc3, adc20;
@@ -331,17 +334,18 @@ void fill_settings_screen()
 void fill_main_screen()
 {
 	tft.fillScreen(TFT_BLACK);
-	tft.pushImage(2,56,39,26,volts);
-	tft.pushImage(5,5,32,30,temp);
-	tft.pushImage(146,7,61,24,oil);
-	tft.pushImage(5,101,30,32,music);
+	tft.pushImage(2,43,30,20,volts);
+	tft.pushImage(5,5,22,20,temp);
+	tft.pushImage(115,5,51,20,oil);
+	tft.pushImage(5,81,19,20,music);
 	tft.pushImage(10,198,32,32,reset);
 	tft.pushImage(92,198,32,34,fuel);
 	tft.pushImage(278,198,32,32,settings);
-	tft.drawLine(0,46,320,46,TFT_GREY);
-	tft.drawLine(0,93,320,93,TFT_GREY);
-	tft.drawLine(0,141,320,141,TFT_GREY);
-	tft.drawLine(0,187,320,187,TFT_GREY);
+	tft.drawLine(0,34,320,34,TFT_GREY);
+	tft.drawLine(0,72,320,72,TFT_GREY);
+	tft.drawLine(0,110,320,110,TFT_GREY);
+	tft.drawLine(0,148,320,148,TFT_GREY);
+	tft.drawLine(0,186,320,186,TFT_GREY);
 	main_filled = true;
 }
 
@@ -427,80 +431,80 @@ void main_screen()
 		tft.setTextDatum(MR_DATUM);
 		tft.setTextPadding(tft.textWidth("88.88", 2));
 		tft.setTextFont(2);
-		tft.drawFloat(vmin1,2,100,70,2);
+		tft.drawFloat(vmin1,2,100,53,2);
 		tft.setTextPadding(0);
 		tft.setTextDatum(ML_DATUM);
-		tft.drawString("V",100,70,2);
+		tft.drawString("V",100,53,2);
 
 		tft.setTextDatum(MR_DATUM);
 		tft.setTextPadding(tft.textWidth("88.88", 4));
-		tft.drawFloat(vin1,2,200,73,4);
+		tft.drawFloat(vin1,2,200,56,4);
 		tft.setTextPadding(0);
 		tft.setTextDatum(ML_DATUM);
-		tft.drawString("V",200,73,4);
+		tft.drawString("V",200,56,4);
 
 		tft.setTextDatum(MR_DATUM);
 		tft.setTextPadding(tft.textWidth("88.88", 2));
-		tft.drawFloat(vmax1,2,300,70,2);
+		tft.drawFloat(vmax1,2,300,53,2);
 		tft.setTextPadding(0);
 		tft.setTextDatum(ML_DATUM);
-		tft.drawString("V",300,70,2);
+		tft.drawString("V",300,53,2);
 
 		tft.setTextDatum(MR_DATUM);
 		tft.setTextPadding(tft.textWidth("88", 4));
-		tft.drawNumber(current,100,120,4);
+		tft.drawNumber(current,100,94,4);
 		tft.setTextPadding(0);
 		tft.setTextDatum(ML_DATUM);
-		tft.drawString("A",100,120,4);
+		tft.drawString("A",100,94,4);
 
 		tft.setTextDatum(MR_DATUM);
 		tft.setTextPadding(tft.textWidth("88", 2));
-		tft.drawNumber(currentmax,160,118,2);
+		tft.drawNumber(currentmax,160,92,2);
 		tft.setTextPadding(0);
 		tft.setTextDatum(ML_DATUM);
-		tft.drawString("A",160,118,2);
+		tft.drawString("A",160,92,2);
 
 		tft.setTextDatum(MR_DATUM);
 		tft.setTextPadding(tft.textWidth("888", 4));
-		tft.drawNumber(power,234,120,4);
+		tft.drawNumber(power,234,94,4);
 		tft.setTextPadding(0);
 		tft.setTextDatum(ML_DATUM);
-		tft.drawString("W",234,120,4);
+		tft.drawString("W",234,94,4);
 
 		tft.setTextDatum(MR_DATUM);
 		tft.setTextPadding(tft.textWidth("888", 2));
-		tft.drawNumber(powermax,295,118,2);
+		tft.drawNumber(powermax,295,92,2);
 		tft.setTextPadding(0);
 		tft.setTextDatum(ML_DATUM);
-		tft.drawString("W",295,118,2);
+		tft.drawString("W",295,92,2);
 
 		tft.setTextDatum(MR_DATUM);
 		tft.setTextPadding(tft.textWidth("888", 4));
-		tft.drawNumber(temp1,90,23,4);
+		tft.drawNumber(temp1,80,18,4);
 		tft.setTextPadding(0);
 		tft.setTextDatum(ML_DATUM);
-		tft.drawString("`C",90,23,4);
+		tft.drawString("`C",80,18,4);
 
 		tft.setTextDatum(MR_DATUM);
 		tft.setTextPadding(tft.textWidth("888", 4));
-		tft.drawNumber(temp2,265,18,4);
+		tft.drawNumber(temp2,218,18,4);
 		tft.setTextPadding(0);
 		tft.setTextDatum(ML_DATUM);
-		tft.drawString("`C",265,18,4);
+		tft.drawString("`C",218,18,4);
 		
 		tft.setTextDatum(MR_DATUM);
-		tft.setTextPadding(tft.textWidth("8.8888", 2));
-		tft.drawFloat(oilpressure,1,262,36,2);
+		tft.setTextPadding(tft.textWidth("8.8", 4));
+		tft.drawFloat(oilpressure,1,297,18,4);
 		tft.setTextPadding(0);
 		tft.setTextDatum(ML_DATUM);
-		tft.drawString(" BAR",262,36,2);
+		tft.drawString("B",297,18,4);
 
 		if (afrstate == 1)
 		{
-			tft.drawString("AFR",1,167,4);
+			tft.drawString("AFR",1,132,4);
 			tft.setTextDatum(MR_DATUM);
 			tft.setTextPadding(tft.textWidth("88.8", 4));
-			tft.drawFloat(afr,1,110,167,4);
+			tft.drawFloat(afr,1,110,132,4);
 			tft.setTextPadding(0);
 			tft.setTextDatum(ML_DATUM);
 		}
@@ -519,14 +523,23 @@ void main_screen()
 			tft.setTextPadding(0);
 			tft.setTextDatum(ML_DATUM);
 			tft.drawString("`C",290,167,4);*/
-			
-			tft.drawString("EGT",180,167,4);
-			tft.setTextDatum(MR_DATUM);
-			tft.setTextPadding(tft.textWidth("888", 4));
-			tft.drawNumber(egt1,290,167,4);
-			tft.setTextPadding(0);
-			tft.setTextDatum(ML_DATUM);
-			tft.drawString("`C",290,167,4);
+
+			if ((egt1 >=1) && (egt1 <= 1200))
+			{
+				if (egt1 > egt1max) { egt1max = egt1; }
+				
+				tft.drawString("EGT",130,132,4);
+				tft.setTextDatum(MR_DATUM);
+				tft.setTextPadding(tft.textWidth("888", 4));
+				tft.drawNumber(egt1,235,132,4);
+				tft.setTextPadding(0);
+				tft.setTextDatum(ML_DATUM);
+				tft.drawString("`C",235,132,4);
+				
+				tft.setTextDatum(MR_DATUM);
+				tft.setTextPadding(tft.textWidth("888", 2));
+				tft.drawNumber(egt1max,310,130,2);
+			}
 		}
 		
 		tft.setTextDatum(MR_DATUM);
