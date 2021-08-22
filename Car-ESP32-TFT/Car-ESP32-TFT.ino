@@ -7,6 +7,7 @@
 #include <TFT_eSPI.h>
 #include <EEPROM.h>
 #include "max6675.h"
+#include "Adafruit_MAX31855.h"
 #include "temp.h"
 #include "oil.h"
 #include "volts.h"
@@ -16,7 +17,8 @@
 #include "back.h"
 #include "fuel.h"
 
-/*
+/* 
+OLD
 #define TFT_RST   4  // Reset pin (could connect to RST pin)
 #define TOUCH_CS 12  // Chip select pin (T_CS) of touch screen
 #define TFT_DC   13  // Data Command control pin
@@ -29,16 +31,51 @@
 #define TFT_RST  -1  // Set TFT_RST to -1 if display RESET is connected to ESP32 board RST
 */
 
+/*
+NEW
+#define TFT_RST   4  // Reset pin (could connect to RST pin)
+#define TOUCH_CS  5  // Chip select pin (T_CS) of touch screen
+#define TFT_DC    2  // Data Command control pin
+#define TFT_CS   15  // Chip select control pin
+
+#define TFT_SCLK 18
+#define TOUCH_DO 19
+#define TFT_MOSI 23
+*/
+
 Adafruit_ADS1115 ads(0x48);
 Adafruit_ADS1115 ads2(0x4A);
+/*
+0x48 (1001000) ADR -> GND
+0x49 (1001001) ADR -> VDD
+0x4A (1001010) ADR -> SDA
+0x4B (1001011) ADR -> SCL
+
+1 - +12V
+2 - +5V
+3 - DS18B20
+4 - EGT1 +
+5 - EGT1 -
+6 - EGT2 +
+7 - EGT2 -
+8 - A0 - ads2 - oilpressure
+9 - A1 - ads2 - fuelpressure
+10 - A2 - ads2
+11 - A3 - ads2
+12 - A2 - ads
+*/
 OneWire oneWire(25);
 DallasTemperature sensors(&oneWire);
 TaskHandle_t Task1;
 TFT_eSPI tft = TFT_eSPI();
-MAX6675 ktc1(27, 16, 17); // SCK, CS, MISO
-MAX6675 ktc2(27, 26, 17); // SCK, CS, MISO
-byte Thermo1[8] = { 0x28, 0xFF, 0xB5, 0x22, 0x03, 0x19, 0x8A, 0xEA };
-byte Thermo2[8] = { 0x28, 0xFF, 0xD8, 0x31, 0x03, 0x19, 0x8A, 0xA7 };
+//MAX6675 ktc1(27, 16, 17); // SCK, CS, MISO
+//MAX6675 ktc2(27, 26, 17); // SCK, CS, MISO
+Adafruit_MAX31855 ktc1(27, 16, 17); // CLK, CS, DO
+byte Thermo1[8] = { 0x28, 0xFF, 0x4D, 0x7C, 0x53, 0x19, 0x01, 0x68 };
+byte Thermo2[8] = { 0x28, 0xFF, 0x62, 0x80, 0x00, 0x19, 0x8A, 0xAF };
+
+// 28 FF 4D 7C 53 19 1 68
+// 28 FF 62 80 0 19 8A AF
 
 #define CALIBRATION_FILE "/TouchCalData3"
 #define REPEAT_CAL false
@@ -47,16 +84,13 @@ byte Thermo2[8] = { 0x28, 0xFF, 0xD8, 0x31, 0x03, 0x19, 0x8A, 0xA7 };
 float R1 = 110000.0, R2 = 11000.0, R3 = 110000.0, R4 = 11000.0;
 float value1, value2, value3, vout1, vout3;
 float vmin1 = 20.0, vmax1 = 0.0, current_avg, vin1_avg, tempC, afr_avg, oilpressure_avg, fuelpressure_avg;
-volatile float vin1, current, temp1, temp2, afr, oilpressure, fuelpressure;
+volatile float vin1, current, temp1, temp2, oldtemp1, oldtemp2, afr, oilpressure, fuelpressure;
 volatile double egt1, egt2, egt1max;
 volatile int avg, rpt, rptdelay, egtstate, afrstate;
 int currentmax, power, powermax, screen;
-int16_t adc0, adc1, adc2, adc3, adc20;
+int16_t adc0, adc1, adc2, adc3, adc20, adc21, adc22, adc23;
 bool main_filled = false;
 bool settings_filled = false;
-
-//float mv[] = { 0.0634, 0.1145, 0.1650, 0.2115, 0.2499, 0.3108, 0.3670, 0.4224, 0.4761, 0.5285, 0.5796, 0.6334, 0.6862, 0.7377, 0.7881, 0.8375, 0.8820, 0.9259, 0.9696, 1.0119, 1.0532, 1.0937, 1.1333, 1.1722, 1.2103, 1.2477, 1.2843, 1.3203, 1.3556, 1.3902, 1.4242, 1.4575, 1.4903, 1.5224, 1.5540, 1.5850, 1.6155, 1.6454, 1.6748, 1.7038, 1.7322, 1.7602, 1.7876, 1.8147, 1.8413, 1.8594, 1.8809, 1.9022, 1.9231, 1.9447, 1.9654 };
-//float bar[] = { 0.0, 0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6, 2.8, 3.0, 3.2, 3.4, 3.6, 3.8, 4.0, 4.2, 4.4, 4.6, 4.8, 5.0, 5.2, 5.4, 5.6, 5.8, 6.0, 6.2, 6.4, 6.6, 6.8, 7.0, 7.2, 7.4, 7.6, 7.8, 8.0, 8.2, 8.4, 8.6, 8.8, 9.0, 9.2, 9.4, 9.6, 9.8, 10.0 };
 
 void setup()
 {
@@ -72,6 +106,7 @@ void setup()
 	ads2.begin();
 	sensors.begin();
 	delay(500);
+	ktc1.begin();
 	sensors.setResolution(Thermo1, 9);
 	sensors.setResolution(Thermo2, 9);
 	digitalWrite(12, HIGH); // Touch controller chip select (if used)
@@ -258,6 +293,14 @@ void read_sensors(void * parameter) {
 		temp2 = sensorValue(Thermo2);
 		temp1 = round(temp1);
 		temp2 = round(temp2);
+		if (temp1 > -100)
+		{
+			oldtemp1 = temp1;
+		}
+		if (temp2 > -100)
+		{
+			oldtemp2 = temp2;
+		}
 	}
 }
 
@@ -359,11 +402,13 @@ void main_screen()
 		{
 			adc0 = ads.readADC_SingleEnded(0);
 			adc1 = ads.readADC_SingleEnded(1);
-			adc2 = ads.readADC_SingleEnded(2);
+			//adc2 = ads.readADC_SingleEnded(2);
 			adc3 = ads.readADC_SingleEnded(3);
 			adc20 = ads2.readADC_SingleEnded(0);
+			adc21 = ads2.readADC_SingleEnded(1);
+			//adc22 = ads2.readADC_SingleEnded(2);
+			//adc23 = ads2.readADC_SingleEnded(3);
 			value1 = adc0;
-			value2 = adc2;
 			value3 = adc1;
 			
 			if (afrstate == 1)
@@ -379,8 +424,8 @@ void main_screen()
 			current = (vout3 - 2.528) / 0.02;
 			if (current < 0.1) { current = 0; }
 			
-			oilpressure = (value2 * 0.1875)/1000;
-			fuelpressure = (adc20 * 0.1875)/1000;
+			oilpressure = (adc20 * 0.1875)/1000;
+			fuelpressure = (adc21 * 0.1875)/1000;
 			
 			if (afrstate == 1)
 			{
@@ -423,7 +468,8 @@ void main_screen()
 		if (egtstate == 1)
 		{
 			egt1 = ktc1.readCelsius();
-			egt2 = ktc2.readCelsius();
+			//egt1 = ktc1.readInternal();
+			//egt2 = ktc2.readCelsius();
 		}
 		
 		tft.setTextColor(TFT_CYAN, TFT_BLACK);
@@ -480,17 +526,37 @@ void main_screen()
 
 		tft.setTextDatum(MR_DATUM);
 		tft.setTextPadding(tft.textWidth("888", 4));
-		tft.drawNumber(temp1,80,18,4);
+		if (temp1 < -100)
+		{
+			tft.setTextColor(TFT_RED, TFT_BLACK);
+			tft.drawNumber(oldtemp1,80,18,4);
+		}
+		else
+		{
+			tft.setTextColor(TFT_CYAN, TFT_BLACK);
+			tft.drawNumber(temp1,80,18,4);
+		}
 		tft.setTextPadding(0);
 		tft.setTextDatum(ML_DATUM);
 		tft.drawString("`C",80,18,4);
+		tft.setTextColor(TFT_CYAN, TFT_BLACK);
 
 		tft.setTextDatum(MR_DATUM);
 		tft.setTextPadding(tft.textWidth("888", 4));
-		tft.drawNumber(temp2,218,18,4);
+		if (temp2 < -100)
+		{
+			tft.setTextColor(TFT_RED, TFT_BLACK);
+			tft.drawNumber(oldtemp2,218,18,4);
+		}
+		else
+		{
+			tft.setTextColor(TFT_CYAN, TFT_BLACK);
+			tft.drawNumber(temp2,218,18,4);
+		}
 		tft.setTextPadding(0);
 		tft.setTextDatum(ML_DATUM);
 		tft.drawString("`C",218,18,4);
+		tft.setTextColor(TFT_CYAN, TFT_BLACK);
 		
 		tft.setTextDatum(MR_DATUM);
 		tft.setTextPadding(tft.textWidth("8.8", 4));
@@ -524,8 +590,12 @@ void main_screen()
 			tft.setTextDatum(ML_DATUM);
 			tft.drawString("`C",290,167,4);*/
 
-			if ((egt1 >=1) && (egt1 <= 1200))
+			/*if (isnan(egt1))
 			{
+				tft.drawString("EGT ERROR",130,132,4);
+			}
+			else
+			{*/
 				if (egt1 > egt1max) { egt1max = egt1; }
 				
 				tft.drawString("EGT",130,132,4);
@@ -539,7 +609,7 @@ void main_screen()
 				tft.setTextDatum(MR_DATUM);
 				tft.setTextPadding(tft.textWidth("888", 2));
 				tft.drawNumber(egt1max,310,130,2);
-			}
+			//}
 		}
 		
 		tft.setTextDatum(MR_DATUM);
@@ -621,16 +691,3 @@ float sensorValue (byte deviceAddress[])
 	tempC = sensors.getTempC (deviceAddress);
 	return tempC;
 }
-
-/*float FmultiMap(float val, float * _in, float * _out, uint8_t size)
-{
-	if (val <= _in[0]) return _out[0];
-	if (val >= _in[size-1]) return _out[size-1];
-
-	uint8_t pos = 1;
-	while(val > _in[pos]) pos++;
-
-	if (val == _in[pos]) return _out[pos];
-
-	return (val - _in[pos-1]) * (_out[pos] - _out[pos-1]) / (_in[pos] - _in[pos-1]) + _out[pos-1];
-}*/
